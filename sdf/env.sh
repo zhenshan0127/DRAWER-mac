@@ -23,9 +23,9 @@ pip install torch-scatter -f https://data.pyg.org/whl/torch-2.1.2+cu118.html
 pip install "typeguard==2.12.1"
 pip install --upgrade tyro
 
-pip install git+https://github.com/NVlabs/nvdiffrast.git
+MAX_JOBS=1 pip install git+https://github.com/NVlabs/nvdiffrast.git --no-build-isolation
 
-pip install "git+https://github.com/facebookresearch/pytorch3d.git@stable"
+MAX_JOBS=1 pip install "git+https://github.com/facebookresearch/pytorch3d.git@stable" --no-build-isolation
 
 pip install scikit-learn
 pip install imageio[ffmpeg]

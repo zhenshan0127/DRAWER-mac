@@ -235,3 +235,12 @@ splat/.vscode
 splat/src
 splat/wandb
 splat/vis
+
+cs_kitchen
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# editor config
+.vscode/

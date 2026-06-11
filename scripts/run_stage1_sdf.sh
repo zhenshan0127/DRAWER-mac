@@ -1,5 +1,5 @@
 data_name="cs_kitchen"
-data_dir=/home/hongchix/data/${data_name}
+data_dir=/home/lzs_ubuntu/DRAWER/${data_name}
 image_dir="images_2"
 downscale_factor=2
 
@@ -7,8 +7,9 @@ downscale_factor=2
 
 cd marigold
 
-conda activate drawer_sdf
+#conda activate drawer_sdf
 
+'''
 python run.py \
     --checkpoint "GonzaloMG/marigold-e2e-ft-depth" \
     --modality depth \
@@ -20,6 +21,7 @@ python run.py \
     --modality normals \
     --input_rgb_dir ${data_dir}/${image_dir} \
     --output_dir ${data_dir}/marigold_ft
+'''
 
 python read_marigold.py --data_dir ${data_dir}/marigold_ft
 ln -s ${data_dir}/marigold_ft/depth ${data_dir}/depth
