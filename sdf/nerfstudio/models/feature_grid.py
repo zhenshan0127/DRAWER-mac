@@ -21,7 +21,14 @@ from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.field_components.spatial_distortions import SpatialDistortion
 from nerfstudio.fields.base_field import Field, FieldConfig
 
-import tinycudann as tcnn
+try:
+    import tinycudann as tcnn
+
+    TCNN_EXISTS = True
+except ImportError:
+    # tiny-cuda-nn is CUDA-only. FeatureGrid is not used on the bakedsdf stage-1
+    # path, so the guard only needs to keep the module importable on Apple Silicon / CPU.
+    TCNN_EXISTS = False
 
 @dataclass
 class FeatureGridConfig(FieldConfig):

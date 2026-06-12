@@ -31,7 +31,14 @@ from nerfstudio.field_components.embedding import Embedding
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.fields.base_field import Field
 
-import tinycudann as tcnn
+try:
+    import tinycudann as tcnn
+
+    TCNN_EXISTS = True
+except ImportError:
+    # tiny-cuda-nn is CUDA-only. This field is never instantiated by bakedsdf,
+    # so the guard only needs to keep the module importable on Apple Silicon / CPU.
+    TCNN_EXISTS = False
 
 
 def get_normalized_directions(directions: TensorType["bs":..., 3]):

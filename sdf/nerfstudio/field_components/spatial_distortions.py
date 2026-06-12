@@ -17,7 +17,13 @@
 from typing import Optional, Union
 
 import torch
-from functorch import jacrev, vmap
+
+try:
+    from functorch import jacrev, vmap
+except ImportError:
+    # functorch was merged into torch as torch.func (torch>=2.0); the standalone
+    # `functorch` shim is gone in recent releases (e.g. the macOS arm64 wheels).
+    from torch.func import jacrev, vmap
 from torch import nn
 from torchtyping import TensorType
 

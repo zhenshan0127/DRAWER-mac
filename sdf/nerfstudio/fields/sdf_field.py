@@ -31,6 +31,7 @@ from typing_extensions import Literal
 from nerfstudio.cameras.rays import RaySamples
 from nerfstudio.field_components.embedding import Embedding
 from nerfstudio.field_components.encodings import (
+    HashEncoding,
     NeRFEncoding,
     PeriodicVolumeEncoding,
     TensorVMEncoding,
@@ -39,7 +40,14 @@ from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.field_components.spatial_distortions import SpatialDistortion
 from nerfstudio.fields.base_field import Field, FieldConfig
 
-import tinycudann as tcnn
+try:
+    import tinycudann as tcnn
+
+    TCNN_EXISTS = True
+except ImportError:
+    # tiny-cuda-nn is CUDA-only; on Apple Silicon / CPU we use the pure-PyTorch
+    # HashEncoding fallback below.
+    TCNN_EXISTS = False
 
 
 class LaplaceDensity(nn.Module):  # alpha * Laplace(loc=0, scale=beta).cdf(-sdf)
@@ -223,18 +231,33 @@ class SDFField(Field):
 
         if self.config.encoding_type == "hash":
             # feature encoding
-            self.encoding = tcnn.Encoding(
-                n_input_dims=3,
-                encoding_config={
-                    "otype": "HashGrid" if use_hash else "DenseGrid",
-                    "n_levels": self.num_levels,
-                    "n_features_per_level": self.features_per_level,
-                    "log2_hashmap_size": self.log2_hashmap_size,
-                    "base_resolution": self.base_res,
-                    "per_level_scale": self.growth_factor,
-                    "interpolation": "Smoothstep" if smoothstep else "Linear",
-                },
-            )
+            if TCNN_EXISTS:
+                self.encoding = tcnn.Encoding(
+                    n_input_dims=3,
+                    encoding_config={
+                        "otype": "HashGrid" if use_hash else "DenseGrid",
+                        "n_levels": self.num_levels,
+                        "n_features_per_level": self.features_per_level,
+                        "log2_hashmap_size": self.log2_hashmap_size,
+                        "base_resolution": self.base_res,
+                        "per_level_scale": self.growth_factor,
+                        "interpolation": "Smoothstep" if smoothstep else "Linear",
+                    },
+                )
+            else:
+                # Pure-PyTorch fallback (Apple Silicon / MPS / CPU) — no tiny-cuda-nn.
+                # The torch HashEncoding supports Linear interpolation only (Smoothstep is
+                # dropped); bakedsdf uses analytic autograd gradients so quality is preserved.
+                self.encoding = HashEncoding(
+                    num_levels=self.num_levels,
+                    min_res=self.base_res,
+                    max_res=self.max_res,
+                    log2_hashmap_size=self.log2_hashmap_size,
+                    features_per_level=self.features_per_level,
+                    implementation="torch",
+                )
+                # tcnn.Encoding exposes .n_output_dims; the torch module exposes get_out_dim().
+                self.encoding.n_output_dims = self.encoding.get_out_dim()
             self.hash_encoding_mask = torch.ones(
                 self.num_levels * self.features_per_level,
                 dtype=torch.float32,

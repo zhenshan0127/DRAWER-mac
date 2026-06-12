@@ -15,7 +15,7 @@ classifiers = [
 ]
 dependencies = [
     "appdirs>=1.4",
-    "av==9.2.0",
+    # av==9.2.0 has no macOS arm64 wheels and is unused by the stage-1 SDF pipeline.
     "tyro>=0.3.31",
     "gdown==4.6.0",
     "ninja==1.10.2.3",
@@ -31,7 +31,7 @@ dependencies = [
     "opencv-python==4.6.0.66",
     "plotly==5.7.0",
     "protobuf==3.20.0",
-    "pymeshlab==2022.2.post2",
+    "pymeshlab>=2023.12.post2",  # first release with macOS arm64 wheels (renamed some filters)
     "pyngrok==5.1.0",
     "python-socketio==5.7.1",
     "requests",

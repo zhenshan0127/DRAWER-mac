@@ -30,8 +30,14 @@ from nerfstudio.field_components.base_field_component import FieldComponent
 from nerfstudio.utils.math import components_from_spherical_harmonics, expected_sin
 from nerfstudio.utils.printing import print_tcnn_speed_warning
 
-import tinycudann as tcnn
-TCNN_EXISTS = True
+try:
+    import tinycudann as tcnn
+
+    TCNN_EXISTS = True
+except ImportError:
+    # tiny-cuda-nn is CUDA-only; on Apple Silicon / CPU we fall back to the
+    # pure-PyTorch encoding implementations in this module.
+    TCNN_EXISTS = False
 
 
 class Encoding(FieldComponent):

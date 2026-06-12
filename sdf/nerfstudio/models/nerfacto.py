@@ -62,7 +62,12 @@ from nerfstudio.model_components.scene_colliders import NearFarCollider
 from nerfstudio.models.base_model import Model, ModelConfig
 from nerfstudio.utils import colormaps
 from nerfstudio.utils.colors import get_color
-from torch_scatter import scatter_mean
+try:
+    from torch_scatter import scatter_mean
+except ImportError:
+    # torch_scatter is only used by NerfactoModel's panoptic-segment grouping, which
+    # is never on the bakedsdf stage-1 path. Keep the module importable without it.
+    scatter_mean = None
 
 @dataclass
 class NerfactoModelConfig(ModelConfig):

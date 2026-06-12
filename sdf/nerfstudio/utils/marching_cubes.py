@@ -12,6 +12,20 @@ upsample = torch.nn.Upsample(scale_factor=2, mode="nearest")
 max_pool_3d = torch.nn.MaxPool3d(3, stride=1, padding=1)
 
 
+def _default_device():
+    """Device for marching-cubes point grids (CUDA > Apple Silicon MPS > CPU)."""
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
+# pymeshlab renamed AbsoluteValue -> PureValue in 2023.12 (the first release with
+# macOS arm64 wheels). Use whichever the installed version provides.
+_PyMeshLabValue = getattr(pymeshlab, "PureValue", None) or getattr(pymeshlab, "AbsoluteValue")
+
+
 def remesh(verts, faces):
     triangles = verts[faces.reshape(-1)].reshape(-1, 3, 3)
     edge_01 = triangles[:, 1] - triangles[:, 0]
@@ -26,7 +40,7 @@ def remesh(verts, faces):
     ms = pymeshlab.MeshSet()
     ms.add_mesh(pml_mesh, 'mesh')
 
-    ms.apply_filter('meshing_isotropic_explicit_remeshing', targetlen=pymeshlab.AbsoluteValue(mean_edge_len))
+    ms.apply_filter('meshing_isotropic_explicit_remeshing', targetlen=_PyMeshLabValue(mean_edge_len))
 
     m = ms.current_mesh()
     verts = m.vertex_matrix()
@@ -47,9 +61,10 @@ def get_surface_sliding(
     simplify_mesh=True,
 ):
     assert resolution % 512 == 0
+    device = coarse_mask.device if coarse_mask is not None else _default_device()
     if coarse_mask is not None:
         # we need to permute here as pytorch's grid_sample use (z, y, x)
-        coarse_mask = coarse_mask.permute(2, 1, 0)[None, None].cuda().float()
+        coarse_mask = coarse_mask.permute(2, 1, 0)[None, None].to(device).float()
 
     resN = resolution
     cropN = 512
@@ -79,7 +94,7 @@ def get_surface_sliding(
                 z = np.linspace(z_min, z_max, cropN)
 
                 xx, yy, zz = np.meshgrid(x, y, z, indexing="ij")
-                points = torch.tensor(np.vstack([xx.ravel(), yy.ravel(), zz.ravel()]).T, dtype=torch.float).cuda()
+                points = torch.tensor(np.vstack([xx.ravel(), yy.ravel(), zz.ravel()]).T, dtype=torch.float).to(device)
 
                 def evaluate(points):
                     z = []
@@ -92,7 +107,7 @@ def get_surface_sliding(
                 points = points.reshape(cropN, cropN, cropN, 3).permute(3, 0, 1, 2)
                 if coarse_mask is not None:
                     # breakpoint()
-                    points_tmp = points.permute(1, 2, 3, 0)[None].cuda()
+                    points_tmp = points.permute(1, 2, 3, 0)[None].to(device)
                     current_mask = torch.nn.functional.grid_sample(coarse_mask, points_tmp)
                     current_mask = (current_mask > 0.0).cpu().numpy()[0, 0]
                 else:
@@ -255,6 +270,7 @@ def get_surface_sliding_with_contraction(
 ):
     assert resolution % 512 == 0
 
+    device = coarse_mask.device if coarse_mask is not None else _default_device()
     resN = resolution
     cropN = 256
     level = 0
@@ -283,7 +299,7 @@ def get_surface_sliding_with_contraction(
                 z = np.linspace(z_min, z_max, cropN)
 
                 xx, yy, zz = np.meshgrid(x, y, z, indexing="ij")
-                points = torch.tensor(np.vstack([xx.ravel(), yy.ravel(), zz.ravel()]).T, dtype=torch.float).cuda()
+                points = torch.tensor(np.vstack([xx.ravel(), yy.ravel(), zz.ravel()]).T, dtype=torch.float).to(device)
 
                 @torch.no_grad()
                 def evaluate(points):
@@ -297,7 +313,7 @@ def get_surface_sliding_with_contraction(
                 points = points.reshape(cropN, cropN, cropN, 3)
 
                 # query coarse grids
-                points_tmp = points[None].cuda() * 0.5  # normalize from [-2, 2] to [-1, 1]
+                points_tmp = points[None].to(device) * 0.5  # normalize from [-2, 2] to [-1, 1]
                 current_mask = torch.nn.functional.grid_sample(coarse_mask, points_tmp)
 
                 points = points.reshape(-1, 3)
@@ -371,11 +387,17 @@ def get_surface_sliding_with_contraction(
             ms.load_new_mesh(filename)
 
             print("simplify mesh")
-            ms.simplification_quadric_edge_collapse_decimation(targetfacenum=target_faces_num)
+            # pymeshlab >=2023.12 (macOS arm64) renamed these filters; fall back to the
+            # pre-2023.12 names so the call works on either version.
+            _decimate = getattr(ms, "meshing_decimation_quadric_edge_collapse", None) \
+                or ms.simplification_quadric_edge_collapse_decimation
+            _decimate(targetfacenum=target_faces_num)
             min_f = 10000
             # min_f = 10
             if min_f > 0:
-                ms.remove_isolated_pieces_wrt_face_num(mincomponentsize=min_f)
+                _remove_small = getattr(ms, "meshing_remove_connected_component_by_face_number", None) \
+                    or ms.remove_isolated_pieces_wrt_face_num
+                _remove_small(mincomponentsize=min_f)
 
             # do an extra isotropic remeshing
             print("remeshing...")

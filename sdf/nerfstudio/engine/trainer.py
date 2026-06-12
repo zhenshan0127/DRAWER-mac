@@ -75,7 +75,15 @@ class Trainer:
         self.config = config
         self.local_rank = local_rank
         self.world_size = world_size
-        self.device = "cpu" if world_size == 0 else f"cuda:{local_rank}"
+        if world_size == 0:
+            self.device = "cpu"
+        elif torch.cuda.is_available():
+            self.device = f"cuda:{local_rank}"
+        elif torch.backends.mps.is_available():
+            # Apple Silicon (Metal) backend.
+            self.device = "mps"
+        else:
+            self.device = "cpu"
         self.mixed_precision = self.config.trainer.mixed_precision
         if self.device == "cpu":
             self.mixed_precision = False
@@ -314,6 +322,10 @@ class Trainer:
         """
         self.optimizers.zero_grad_all()
         cpu_or_cuda_str = self.device.split(":")[0]
+        # torch.autocast does not accept device_type="mps" on older torch; since bakedsdf
+        # runs with mixed_precision=False the autocast is disabled anyway, so map mps->cpu.
+        if cpu_or_cuda_str == "mps":
+            cpu_or_cuda_str = "cpu"
         for _ in range(self.config.trainer.accumulate_grad_steps):
             with torch.autocast(device_type=cpu_or_cuda_str, enabled=self.mixed_precision):
                 _, loss_dict, metrics_dict = self.pipeline.get_train_loss_dict(step=step)

@@ -1,34 +1,39 @@
 data_name="cs_kitchen"
-data_dir=/home/lzs_ubuntu/DRAWER/${data_name}
+# Repo root (this script lives in scripts/); data lives at <repo>/<data_name>.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+data_dir=${REPO_ROOT}/${data_name}
 image_dir="images_2"
 downscale_factor=2
 
+# Apple Silicon (MPS): route any op MPS hasn't implemented to CPU instead of crashing.
+export PYTORCH_ENABLE_MPS_FALLBACK=1
+
 # monocular depth and normal
 
-cd marigold
+cd "${REPO_ROOT}/marigold"
 
 #conda activate drawer_sdf
 
-'''
 python run.py \
     --checkpoint "GonzaloMG/marigold-e2e-ft-depth" \
     --modality depth \
     --input_rgb_dir ${data_dir}/${image_dir} \
-    --output_dir ${data_dir}/marigold_ft
+    --output_dir ${data_dir}/marigold_ft \
+    --apple_silicon
 
 python run.py \
     --checkpoint "GonzaloMG/marigold-e2e-ft-normals" \
     --modality normals \
     --input_rgb_dir ${data_dir}/${image_dir} \
-    --output_dir ${data_dir}/marigold_ft
-'''
+    --output_dir ${data_dir}/marigold_ft \
+    --apple_silicon
 
 python read_marigold.py --data_dir ${data_dir}/marigold_ft
 ln -s ${data_dir}/marigold_ft/depth ${data_dir}/depth
 ln -s ${data_dir}/marigold_ft/normal ${data_dir}/normal
 
 # sdf reconstruction
-cd ../sdf
+cd "${REPO_ROOT}/sdf"
 
 python scripts/train.py bakedsdf --vis wandb \
     --output-dir outputs/${data_name} --experiment-name ${data_name}_sdf_recon \

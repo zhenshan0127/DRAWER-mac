@@ -28,8 +28,18 @@ from nerfstudio.cameras.rays import RaySamples
 from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.field_components.activations import trunc_exp
 from nerfstudio.field_components.spatial_distortions import SpatialDistortion
+from nerfstudio.field_components.encodings import HashEncoding
+from nerfstudio.field_components.mlp import MLP
 from nerfstudio.fields.base_field import Field
-import tinycudann as tcnn
+
+try:
+    import tinycudann as tcnn
+
+    TCNN_EXISTS = True
+except ImportError:
+    # tiny-cuda-nn is CUDA-only; on Apple Silicon / CPU we build the proposal
+    # network from the pure-PyTorch HashEncoding + MLP below.
+    TCNN_EXISTS = False
 
 
 class HashMLPDensityField(Field):
@@ -80,16 +90,43 @@ class HashMLPDensityField(Field):
             },
         }
 
-        if not self.use_linear:
-            self.mlp_base = tcnn.NetworkWithInputEncoding(
-                n_input_dims=3,
-                n_output_dims=1,
-                encoding_config=config["encoding"],
-                network_config=config["network"],
-            )
+        if TCNN_EXISTS:
+            if not self.use_linear:
+                self.mlp_base = tcnn.NetworkWithInputEncoding(
+                    n_input_dims=3,
+                    n_output_dims=1,
+                    encoding_config=config["encoding"],
+                    network_config=config["network"],
+                )
+            else:
+                self.encoding = tcnn.Encoding(n_input_dims=3, encoding_config=config["encoding"])
+                self.linear = torch.nn.Linear(self.encoding.n_output_dims, 1)
         else:
-            self.encoding = tcnn.Encoding(n_input_dims=3, encoding_config=config["encoding"])
-            self.linear = torch.nn.Linear(self.encoding.n_output_dims, 1)
+            # Pure-PyTorch fallback (Apple Silicon / MPS / CPU) — no tiny-cuda-nn.
+            self.encoding = HashEncoding(
+                num_levels=num_levels,
+                min_res=base_res,
+                max_res=max_res,
+                log2_hashmap_size=log2_hashmap_size,
+                features_per_level=features_per_level,
+                implementation="torch",
+            )
+            if not self.use_linear:
+                # tcnn's FullyFusedMLP has (num_layers - 1) hidden layers, i.e. num_layers
+                # weight matrices total; nerfstudio's MLP num_layers counts total layers.
+                self.mlp_base = torch.nn.Sequential(
+                    self.encoding,
+                    MLP(
+                        in_dim=self.encoding.get_out_dim(),
+                        num_layers=num_layers,
+                        layer_width=hidden_dim,
+                        out_dim=1,
+                        activation=torch.nn.ReLU(),
+                        out_activation=None,
+                    ),
+                )
+            else:
+                self.linear = torch.nn.Linear(self.encoding.get_out_dim(), 1)
 
     def get_density(self, ray_samples: RaySamples):
         if self.spatial_distortion is not None:
