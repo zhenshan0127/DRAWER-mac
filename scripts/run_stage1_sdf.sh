@@ -5,45 +5,67 @@ data_dir=${REPO_ROOT}/${data_name}
 image_dir="images_2"
 downscale_factor=2
 
+# Training iterations: reduced from the paper's 250000 to 50000 for Apple Silicon (MPS)
+# speed (a first-run setting per README_MAC.md). Raise toward 250000 for full quality
+# (expect days). The scheduler/anneal steps below all track this value.
+max_iters=50000
+
+# Activate the Python env (uv venv created at the repo root by sdf/env_mac.sh).
+if [ -f "${REPO_ROOT}/.venv/bin/activate" ]; then
+    source "${REPO_ROOT}/.venv/bin/activate"
+fi
+
 # Apple Silicon (MPS): route any op MPS hasn't implemented to CPU instead of crashing.
 export PYTORCH_ENABLE_MPS_FALLBACK=1
 
+# Log Weights & Biases locally so no wandb.ai login is needed. To upload runs instead,
+# remove this line (or set WANDB_MODE=online) and run `wandb login` first.
+export WANDB_MODE=offline
+
 # monocular depth and normal
+# Skip Marigold inference if its outputs already exist — it re-processes EVERY frame and
+# is very slow on MPS (no resume). Delete ${data_dir}/marigold_ft to force regeneration.
+if [ -n "$(ls -A "${data_dir}/marigold_ft/depth" 2>/dev/null)" ] && \
+   [ -n "$(ls -A "${data_dir}/marigold_ft/normal" 2>/dev/null)" ]; then
+    echo "[stage1] Marigold depth/normal already present in ${data_dir}/marigold_ft — skipping inference."
+else
+    cd "${REPO_ROOT}/marigold"
 
-cd "${REPO_ROOT}/marigold"
+    python run.py \
+        --checkpoint "GonzaloMG/marigold-e2e-ft-depth" \
+        --modality depth \
+        --input_rgb_dir ${data_dir}/${image_dir} \
+        --output_dir ${data_dir}/marigold_ft \
+        --apple_silicon
 
-#conda activate drawer_sdf
+    python run.py \
+        --checkpoint "GonzaloMG/marigold-e2e-ft-normals" \
+        --modality normals \
+        --input_rgb_dir ${data_dir}/${image_dir} \
+        --output_dir ${data_dir}/marigold_ft \
+        --apple_silicon
 
-python run.py \
-    --checkpoint "GonzaloMG/marigold-e2e-ft-depth" \
-    --modality depth \
-    --input_rgb_dir ${data_dir}/${image_dir} \
-    --output_dir ${data_dir}/marigold_ft \
-    --apple_silicon
+    python read_marigold.py --data_dir ${data_dir}/marigold_ft
+fi
 
-python run.py \
-    --checkpoint "GonzaloMG/marigold-e2e-ft-normals" \
-    --modality normals \
-    --input_rgb_dir ${data_dir}/${image_dir} \
-    --output_dir ${data_dir}/marigold_ft \
-    --apple_silicon
-
-python read_marigold.py --data_dir ${data_dir}/marigold_ft
-ln -s ${data_dir}/marigold_ft/depth ${data_dir}/depth
-ln -s ${data_dir}/marigold_ft/normal ${data_dir}/normal
+# Expose depth/normal to the SDF dataparser. Replace any stale 0-byte placeholders first
+# (plain `ln -s` fails with "File exists" on macOS if the target name already exists).
+rm -f "${data_dir}/depth" "${data_dir}/normal"
+ln -s "${data_dir}/marigold_ft/depth" "${data_dir}/depth"
+ln -s "${data_dir}/marigold_ft/normal" "${data_dir}/normal"
 
 # sdf reconstruction
 cd "${REPO_ROOT}/sdf"
 
 python scripts/train.py bakedsdf --vis wandb \
     --output-dir outputs/${data_name} --experiment-name ${data_name}_sdf_recon \
-    --trainer.steps-per-eval-image 2000 --trainer.steps-per-eval-all-images 250001 \
-    --trainer.max-num-iterations 250001 --trainer.steps-per-eval-batch 250001 \
-    --optimizers.fields.scheduler.max-steps 250000 \
-    --optimizers.field-background.scheduler.max-steps 250000 \
-    --optimizers.proposal-networks.scheduler.max-steps 250000 \
-    --pipeline.model.eikonal-anneal-max-num-iters 250000 \
-    --pipeline.model.beta-anneal-max-num-iters 250000 \
+    --trainer.steps-per-eval-image 2000 --trainer.steps-per-eval-all-images $((max_iters + 1)) \
+    --trainer.max-num-iterations $((max_iters + 1)) --trainer.steps-per-eval-batch $((max_iters + 1)) \
+    --optimizers.fields.scheduler.max-steps ${max_iters} \
+    --optimizers.field-background.scheduler.max-steps ${max_iters} \
+    --optimizers.proposal-networks.scheduler.max-steps ${max_iters} \
+    --pipeline.model.eikonal-anneal-max-num-iters ${max_iters} \
+    --pipeline.model.beta-anneal-max-num-iters ${max_iters} \
     --pipeline.model.sdf-field.bias 1.5 --pipeline.model.sdf-field.inside-outside True \
     --pipeline.model.eikonal-loss-mult 0.01 --pipeline.model.num-neus-samples-per-ray 24 \
     --pipeline.datamanager.train-num-rays-per-batch 4096 \

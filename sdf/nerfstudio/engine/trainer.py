@@ -270,7 +270,9 @@ class Trainer:
                 load_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(load_dir))[-1]
             load_path = load_dir / f"step-{load_step:09d}.ckpt"
             assert load_path.exists(), f"Checkpoint {load_path} does not exist"
-            loaded_state = torch.load(load_path, map_location="cpu")
+            # weights_only=False: PyTorch>=2.6 defaults this to True, which rejects the
+            # numpy scalar globals stored in our own (trusted, locally trained) checkpoints.
+            loaded_state = torch.load(load_path, map_location="cpu", weights_only=False)
             self._start_step = loaded_state["step"] + 1
             # load the checkpoints for pipeline, optimizers, and gradient scalar
             self.pipeline.load_pipeline(loaded_state["pipeline"])
