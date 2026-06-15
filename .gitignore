@@ -244,3 +244,6 @@ __pycache__/
 
 # editor config
 .vscode/
+
+research_insights/*.npz
+research_insights/*.ply
