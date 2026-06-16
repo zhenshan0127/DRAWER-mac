@@ -1,3 +1,7 @@
+# macOS Finder metadata, anywhere in the repo
+.DS_Store
+._.DS_Store
+
 3DOI/outputs
 3DOI/outputs/*
 3DOI/checkpoints
@@ -111,8 +115,6 @@ sdf/bash/
 sdf/cache/
 sdf/package-lock.json
 sdf/camera_paths/
-sdf/._.DS_Store
-sdf/.DS_Store
 sdf/.vscode/settings.json
 sdf/vis_results/
 sdf/W/
@@ -216,10 +218,6 @@ splat/bash/
 splat/cache/
 splat/package-lock.json
 splat/camera_paths/
-splat/.DS_Store
-splat/._.DS_Store
-splat/*/**/.DS_Store
-splat/*/**/._.DS_Store
 splat/.pixi
 splat//third_party
 splat/vis/*
